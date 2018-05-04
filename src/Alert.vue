@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div v-if="dismissCountDown > 0">
     <b-alert :show="dismissCountDown"
              dismissible
              :variant="variant"
@@ -17,6 +17,8 @@
 </template>
 
 <script>
+import jump from 'jump.js'
+
 export default {
   name:"Alert",
   props:["msg", "variant"],
@@ -33,6 +35,12 @@ export default {
     },
     showAlert () {
       this.dismissCountDown = this.dismissSecs
+      setTimeout(() => {
+        jump('#alert',{
+          duration: 500,
+          offset: -10
+        });
+      }, 200);
     }
   }
 }

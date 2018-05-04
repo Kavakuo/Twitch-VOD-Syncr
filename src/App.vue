@@ -2,17 +2,11 @@
   <div id="app">
     <h1 style="text-align: center;">Twitch VOD Syncr</h1>
     <div style="height:20px"></div>
-    <!-- <b-alert dismissible="" :show="error" variant="danger" @dismissed="error=false">
-      {{ errorMsg }}
-    </b-alert> -->
-
-    <transition name="fade">
-      <Alert variant="danger" :msg="this.errorMsg" ref="alert"></Alert>
-    </transition>
-
     <p>
       This tool is really great, if you want to watch a streaming project on Twitch with multiple streamers later as VOD. It calculates the timestamps of multiple VODs so that you can play them synchronized in multiple browser windows. The <strong>Main VOD</strong> is together with the required <strong>Relative timestamp</strong> the reference point in time. All other VODs will be synced to this point in time. 
     </p>
+
+    <Alert id="alert" variant="danger" :msg="this.errorMsg" ref="alert"></Alert>
 
     <b-form id="form">
 
@@ -38,8 +32,17 @@
     <transition name="fade">
       <div v-if="(finished && !loading)">
         <h3 id="result">Result:</h3>
+        <li style="margin-bottom:10px">Target date: {{ target_date_string }}</li>
         <ul style="margin-left:7px; margin-top:5px; font-size:16px">
-          <li v-for="vod in vodInfo" :key="vod.id" style="margin-bottom:10px">{{ vod.display_name }}:<br> <a :href="vod.url">{{vod.url}}</a></li> 
+          <li v-for="vod in vodInfo" :key="vod.id" style="margin-bottom:10px">
+            {{ vod.display_name }} ({{ vod.created_at.toLocaleDateString() }}):<br> 
+            <div v-if="vod.syncError" style="color: red">
+              {{ vod.syncErrorMsg }}
+            </div>
+            <div v-else>
+              <a :href="vod.url">{{vod.url}}</a>
+            </div>            
+          </li> 
         </ul>  
       </div>
     </transition>
@@ -71,6 +74,7 @@ export default {
       comp_alert: null,
 
       target_date: null,
+      target_date_string: null,
       vodInfo: null,
       finished:false,
       loading: false,
@@ -97,10 +101,12 @@ export default {
     submitDone: function() {
       this.finished = true;
       this.loading = false;
-      jump('#result', {
-        duration: 500,
-        offset: -10
-      });
+      setTimeout(() => {
+        jump('#result', {
+          duration: 500,
+          offset: -10
+        });
+      }, 200);
     },
 
     submit: function() {
@@ -150,6 +156,7 @@ export default {
       const url = "https://api.twitch.tv/helix/videos?id=" + mainId + "&id=" + ids.join("&id=");
 
       this.$http.get(url).then(response => {
+
         if (!response.ok) {
           throw response;
         }
@@ -161,6 +168,7 @@ export default {
           let vodInfoTemp = {
             "user_id": i.user_id,
             "id": i.id,
+            "created_at": new Date(i.created_at),
             "duration":null,
             "main_vod":false,
             "offset":null,
@@ -184,6 +192,8 @@ export default {
             "minutes": minutes ? parseInt(minutes[1]) : 0,
             "seconds":seconds ? parseInt(seconds[1]) : 0
           }
+          const duration_parsed = vodInfoTemp.duration;
+          vodInfoTemp.duration["total"] = duration_parsed.hours * 3600 + duration_parsed.minutes * 60 + duration_parsed.seconds;
 
           if (i.id == mainId) {
             main_created = new Date(i.created_at);
@@ -192,6 +202,7 @@ export default {
             target_date.setMinutes(target_date.getMinutes() + timeObj.minutes);
             target_date.setSeconds(target_date.getSeconds() + timeObj.seconds);
             this.target_date = target_date;
+            this.target_date_string = target_date.toLocaleString();
             vodInfoTemp["main_vod"] = true;
 
             this.vodInfo[0] = vodInfoTemp;  
@@ -221,17 +232,29 @@ export default {
           const offset = {
             "seconds":seconds,
             "minutes":minutes,
-            "hours":hours
+            "hours":hours,
+            "total": hours*3600 + minutes*60 + seconds
           }
           
           elem["offset"] = offset;
           elem["url"] = "https://twitch.tv/videos/" + i.id + "?t=" + offset.hours + "h" + offset.minutes + "m" + offset.seconds + "s";
+          const tDate = new Date(elem.created_at);
+
+          if (this.target_date < elem.created_at) {
+            elem.syncError = true;
+            elem.syncErrorMsg = "Not syncronizable, VOD was recorded after target date.";
+          }
+          else if (this.target_date > tDate.setSeconds(tDate.getSeconds() + elem.duration.total)) {
+            elem.syncError = true;
+            elem.syncErrorMsg = "Not syncronizable, VOD is too short.";
+          }
+        
         }
 
         const url2 = "https://api.twitch.tv/helix/users?id=" + userIds.join("&id=");
         return this.$http.get(url2);
       }).then((response) => {
-        throw response;
+        
         // userid request
         if (!response.ok) {
           throw response;
